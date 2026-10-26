@@ -1,0 +1,27 @@
+# 核心依赖（参考实现可在本机 CPU 环境跑通自检）
+torch>=2.4
+numpy>=1.24
+Pillow>=10.0
+safetensors>=0.4
+PyYAML>=6.0
+
+# 训练侧（按需）
+transformers>=4.44      # 复用开源基座权重、HF tokenizer
+datasets>=2.20         # 数据集加载与流式读取
+accelerate>=0.33       # 分布式启动辅助
+peft>=0.12             # LoRA / QLoRA（Stage 3 可选）
+deepspeed>=0.14        # 或使用 torch FSDP，替代 ZeRO-3
+soundfile>=0.12        # 音频解码（缺失时回退到标准库 wave）
+tqdm>=4.66
+
+# 部署侧（按需）
+fastapi>=0.110
+uvicorn[standard]>=0.30
+pydantic>=2.7
+python-multipart>=0.0.9
+requests>=2.32
+pillow>=10.0
+soundfile>=0.12
+
+# vLLM 多模态（需 CUDA 环境，本机未安装）
+# vllm>=0.6.0

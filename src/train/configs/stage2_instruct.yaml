@@ -1,0 +1,105 @@
+# ============================================================================
+# Stage 2 — 多模态指令微调 (Instruct Tuning)
+# ----------------------------------------------------------------------------
+# 目标  : 在 Stage1 已对齐的 projector 之上, 教模型"看懂问题 -> 给出有帮助的回答"。
+# 解冻  : LLM + projector; vision / audio 塔仍冻结 (保住塔本身的通用表征)。
+# 数据  : 多模态指令数据 (LLaVA-Instruct / 多图 / 多轮对话 / OCR / 图表问答等)。
+# 学到  : 指令跟随、多轮对话格式、视觉/音频内容与语言输出的联合建模能力。
+# 显存  : 7B 全参微调 (fp32 master + fp32 grad + Adam m/v) ≈ 16 bytes/param ≈ 112GB,
+#         必须 FSDP 分片 (4xA100 80G 起步, 见 README 显存估算) 或改用 LoRA。
+# 用法  :
+#   torchrun --nproc_per_node 8 -m src.train.train \
+#       --config src/train/configs/stage2_instruct.yaml
+#   # 单卡:
+#   python -m src.train.train --config src/train/configs/stage2_instruct.yaml
+# ============================================================================
+
+stage: stage2_instruct
+seed: 42
+
+model:
+  preset: base
+  base_model: ""                  # 留空 = 从零; 建议填 Stage1 产出的目录或 HF 基座 id
+  tokenizer: "meta-llama/Llama-2-7b-hf"
+  trust_remote_code: false
+  hf_override: true
+  llm: {}
+  vision: {}
+  audio: {}
+
+data:
+  train_path: "data/stage2_instruct.jsonl"
+  eval_path: "data/stage2_instruct_val.jsonl"
+  max_text_len: 4096
+  max_images: 4
+  max_audio_chunks: 8
+  num_workers: 8
+  shuffle: true
+
+train:
+  precision: bf16
+  max_seq_len: 4096
+
+  # ---- 冻结策略: LLM + projector ----
+  freeze:
+    llm: true
+    vision: false
+    audio: false
+    projector: true
+
+  # ---- 分组学习率: LLM 小 lr, projector 稍大 ----
+  lr:
+    default: 0.0
+    projector: 2.0e-4
+    llm: 2.0e-5
+    vision: 0.0
+    audio: 0.0
+
+  weight_decay:
+    default: 0.01
+    projector: 0.0
+    llm: 0.01
+    vision: 0.01
+    audio: 0.01
+  no_decay_keywords: ["norm", "bias", "ln_", "layernorm"]
+
+  optimizer:
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+
+  batch_size: 4                   # 每卡 batch (长序列, 显存吃紧就降到 1~2)
+  grad_accum: 8                   # 有效 batch = 4 * 8 * world_size
+  epochs: 1
+  warmup_ratio: 0.03
+  warmup_steps: 200
+  min_lr_ratio: 0.1
+  max_grad_norm: 1.0
+  gradient_checkpointing: true    # 7B 全参微调必须开
+
+  save_dir: "runs/stage2_instruct"
+  save_steps: 500
+  eval_steps: 500
+  logging_steps: 10
+  max_steps: 0
+  save_total_limit: 3
+  resume: null
+
+  dist_backend: fsdp
+  fsdp:
+    sharding_strategy: full_shard
+    cpu_offload: false
+    sync_module_states: true
+  ddp:
+    find_unused_parameters: true
+
+  lora:
+    enabled: false                # true 需要安装 peft; 未安装会自动退化为 LLM 全参微调
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+  dpo:
+    enabled: false
+    beta: 0.1
+    ref_model: null               # 做 DPO 时填 Stage2 产出的 SFT 目录

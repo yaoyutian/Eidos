@@ -1,0 +1,115 @@
+# ============================================================================
+# Stage 3 — 全模态 SFT (含音频) + 可选 DPO
+# ----------------------------------------------------------------------------
+# 目标  : 补上"听得见"的最后一块拼图 —— 解冻音频塔, 让语音/环境声/音乐也能进入 LLM;
+#         并可选地用偏好数据做 DPO, 把回答质量往上抬。
+# 解冻  : LLM + projector + 音频塔; 视觉塔默认仍冻结 (想解冻就改 freeze.vision: true)。
+# 数据  : 语音问答 (AudioQA) / 语音指令 / ASR+解释 / 音视频混合, 偏好数据含 chosen/rejected。
+# 学到  : 音频-文本对齐、跨模态联合推理 (图 + 音 + 文)、以及偏好对齐后的表达风格。
+# 显存  : 在 Stage2 基础上多出音频塔 (Whisper-large encoder ≈ 0.6B) 的参数/梯度/优化器状态,
+#         7B 场景建议 4~8xA100 80G, 或用 LoRA 把优化器状态压到 O(0.1%)。
+# 用法  :
+#   torchrun --nproc_per_node 8 -m src.train.train \
+#       --config src/train/configs/stage3_omni_sft.yaml
+#   # 想省显存就开 LoRA:
+#   torchrun --nproc_per_node 8 -m src.train.train \
+#       --config src/train/configs/stage3_omni_sft.yaml \
+#       --set train.lora.enabled=true
+# ============================================================================
+
+stage: stage3_omni_sft
+seed: 42
+
+model:
+  preset: base
+  base_model: ""                  # 建议填 Stage2 产出的目录 (MultimodalLM.from_pretrained 可读)
+  tokenizer: "meta-llama/Llama-2-7b-hf"
+  trust_remote_code: false
+  hf_override: true
+  llm: {}
+  vision: {}
+  audio: {}
+
+data:
+  train_path: "data/stage3_omni_sft.jsonl"
+  eval_path: "data/stage3_omni_sft_val.jsonl"
+  max_text_len: 4096
+  max_images: 2
+  max_audio_chunks: 4
+  num_workers: 8
+  shuffle: true
+
+train:
+  precision: bf16
+  max_seq_len: 4096
+
+  # ---- 冻结策略: LLM + projector + 音频塔 (视觉塔默认冻结) ----
+  freeze:
+    llm: true
+    vision: false
+    audio: true
+    projector: true
+
+  # ---- 分组学习率: 整体比 Stage2 更低, 避免冲掉已有能力 ----
+  lr:
+    default: 0.0
+    projector: 1.0e-4
+    llm: 1.0e-5
+    vision: 0.0
+    audio: 1.0e-5
+
+  weight_decay:
+    default: 0.01
+    projector: 0.0
+    llm: 0.01
+    vision: 0.01
+    audio: 0.01
+  no_decay_keywords: ["norm", "bias", "ln_", "layernorm"]
+
+  optimizer:
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+
+  batch_size: 2                   # 音频 chunk 显存占用大, batch 先压小
+  grad_accum: 8
+  epochs: 1
+  warmup_ratio: 0.05              # 换模态阶段 warmup 稍长
+  warmup_steps: 300
+  min_lr_ratio: 0.1
+  max_grad_norm: 1.0
+  gradient_checkpointing: true
+
+  save_dir: "runs/stage3_omni_sft"
+  save_steps: 500
+  eval_steps: 500
+  logging_steps: 10
+  max_steps: 0
+  save_total_limit: 3
+  resume: null
+
+  dist_backend: fsdp
+  fsdp:
+    sharding_strategy: full_shard
+    cpu_offload: false
+    sync_module_states: true
+  ddp:
+    find_unused_parameters: true
+
+  # ---- LoRA (可选) ----
+  # peft 可用 -> 只给 LLM 挂 LoRA, projector/音频塔仍全参训练, 优化器状态从 112GB 降到 ~1GB。
+  # peft 不可用 -> 脚本自动打印告警并退化为 "LLM 全参微调" (功能不缺, 只是更吃显存)。
+  lora:
+    enabled: false
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+  # ---- DPO (可选) ----
+  # 打开后 train_path 里需要额外的偏好记录:
+  #   {"chosen": [{...}], "rejected": [{...}], "images": [...], "audios": [...]}
+  # 注意: DPO 走纯文本偏好对 (图像/音频占位符会被剔除)。
+  dpo:
+    enabled: false
+    beta: 0.1
+    ref_model: null               # 填 Stage2/Stage3 的 SFT 输出目录作为参考模型

@@ -1,0 +1,104 @@
+# ============================================================================
+# Stage 1 — 模态对齐 (Alignment)
+# ----------------------------------------------------------------------------
+# 目标  : 让随机初始化的 projector 学会把"视觉/音频特征"翻译成 LLM 能理解的 token,
+#         同时保持 LLM 与两个塔完全冻结 (纯 projector 训练, 显存友好)。
+# 解冻  : projector (含 vision_resampler / audio_projector); llm / vision / audio 全冻。
+# 数据  : 图文 caption 对 (短句、单图、答案 20-50 token) + 音频-文本对齐对 (可选)。
+# 学到  : 模态特征 -> LLM 词嵌入空间的线性/MLP 对齐, 为后续指令微调提供可用的视觉 token。
+# 显存  : LLM 冻结 -> 无优化器状态; 7B LLM + ViT-L/Whisper-L 前向, 单卡 80G 可跑 (bs=8~16)。
+# 用法  :
+#   python -m src.train.train --config src/train/configs/stage1_align.yaml
+#   torchrun --nproc_per_node 8 -m src.train.train \
+#       --config src/train/configs/stage1_align.yaml
+# ============================================================================
+
+stage: stage1_align
+seed: 42
+
+model:
+  preset: base                    # tiny / small / base / large (base = 7B)
+  base_model: ""                  # 空 = 从零预训练; 填 HF id (如 meta-llama/Llama-2-7b-hf) = 复用开源基座
+  tokenizer: "meta-llama/Llama-2-7b-hf"
+  trust_remote_code: false
+  hf_override: true               # 用 HF config 的结构字段对齐本项目 LLMConfig
+  llm: {}                         # 覆盖 MMConfig.llm 的字段, 如 {attn_impl: sdpa}
+  vision: {}                      # 覆盖 MMConfig.vision 的字段
+  audio: {}                       # 覆盖 MMConfig.audio 的字段
+
+data:
+  train_path: "data/stage1_captions.jsonl"   # 每行一条 {conversations, images, audios}
+  eval_path: null                            # 填路径则按 eval_steps 做验证
+  max_text_len: 2048
+  max_images: 1
+  max_audio_chunks: 1
+  num_workers: 4
+  shuffle: true
+
+train:
+  precision: bf16                 # bf16 | fp16 | fp32 (fp16 才会启用 GradScaler)
+  max_seq_len: 2048
+
+  # ---- 冻结策略: 只训 projector ----
+  freeze:
+    llm: false
+    vision: false
+    audio: false
+    projector: true
+
+  # ---- 分组学习率 (projector 用大 lr) ----
+  lr:
+    default: 0.0
+    projector: 1.0e-3
+    llm: 0.0
+    vision: 0.0
+    audio: 0.0
+
+  # ---- 分组 weight decay (norm/bias 不做 wd) ----
+  weight_decay:
+    default: 0.01
+    projector: 0.0
+    llm: 0.01
+    vision: 0.01
+    audio: 0.01
+  no_decay_keywords: ["norm", "bias", "ln_", "layernorm"]
+
+  optimizer:
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+
+  batch_size: 16                  # 每卡 batch
+  grad_accum: 2                   # 有效 batch = batch_size * grad_accum * world_size
+  epochs: 1
+  warmup_ratio: 0.02              # 对齐阶段用短 warmup
+  warmup_steps: 200
+  min_lr_ratio: 0.1               # cosine 衰减的最低 lr 比例
+  max_grad_norm: 1.0
+  gradient_checkpointing: true    # LLM 冻结但前向仍要过 decoder, 开检查点省激活显存
+
+  save_dir: "runs/stage1_align"
+  save_steps: 500
+  eval_steps: 500
+  logging_steps: 10
+  max_steps: 0                    # >0 时用于调试 (限制总优化步数)
+  save_total_limit: 3
+  resume: null
+
+  dist_backend: fsdp              # fsdp | ddp | none (auto: 有 GPU 用 fsdp)
+  fsdp:
+    sharding_strategy: full_shard
+    cpu_offload: false
+    sync_module_states: true
+  ddp:
+    find_unused_parameters: true
+
+  lora:
+    enabled: false                # Stage1 不建议 LoRA: 需要训练的是 projector
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  dpo:
+    enabled: false                # Stage1 不做偏好对齐
+    beta: 0.1
+    ref_model: null

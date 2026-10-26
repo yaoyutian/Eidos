@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>从零构建多模态大模型 · 架构蓝图</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#f7f5f0; --card:#ffffff; --line:#e9e3d6; --line-soft:#f0ece2;
+  --ink:#14171e; --body:#3a4256; --muted:#7c7a72;
+  --primary:#2f6f5e; --primary-soft:rgba(47,111,94,.08);
+  --primary-mid:rgba(47,111,94,.15); --primary-strong:rgba(47,111,94,.26);
+  --radius:16px;
+  --sans:'Outfit','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --serif:'DM Serif Display','Songti SC','SimSun',serif;
+  --mono:'JetBrains Mono','Consolas','Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--cream); color:var(--body); font-family:var(--sans);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(520px 320px at 12% -6%, rgba(47,111,94,.055), transparent 70%),
+    radial-gradient(480px 300px at 92% 4%, rgba(201,123,63,.045), transparent 70%);
+}
+.wrap{position:relative; z-index:1; max-width:1020px; margin:0 auto; padding:56px 24px 96px}
+@media(min-width:768px){.wrap{padding:72px 32px 120px}}
+
+/* ---------- typography ---------- */
+h1{font-family:var(--serif); font-weight:400; font-size:36px; line-height:1.2; letter-spacing:-.01em; color:var(--ink)}
+h2{font-family:var(--serif); font-weight:400; font-size:25px; line-height:1.25; color:var(--ink); letter-spacing:-.005em}
+h3{font-size:16px; font-weight:600; color:var(--ink); line-height:1.4}
+p{margin-bottom:10px}
+.lede{font-size:16.5px; line-height:1.6; color:var(--body)}
+.muted{color:var(--muted)}
+.mono{font-family:var(--mono); font-size:12.5px}
+code{font-family:var(--mono); font-size:12.5px; background:rgba(47,111,94,.08); color:var(--primary); padding:1.5px 5px; border-radius:5px; white-space:nowrap}
+
+/* ---------- layout ---------- */
+section{margin-top:56px}
+.eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--primary); margin-bottom:12px; display:flex; align-items:center; gap:9px}
+.eyebrow::before{content:""; width:20px; height:1.5px; background:var(--primary); opacity:.55}
+.sec-head{margin-bottom:22px; max-width:640px}
+.sec-head p{margin-top:9px; font-size:14.5px; color:var(--muted)}
+.grid{display:grid; gap:16px}
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.card h3{margin-bottom:8px}
+.card p{font-size:14px; margin-bottom:0; color:var(--body)}
+.card.accent{background:var(--primary-soft); border-color:rgba(47,111,94,.22)}
+.card .num{font-family:var(--mono); font-size:11px; color:var(--primary); letter-spacing:.1em; display:block; margin-bottom:9px}
+
+/* ---------- hero ---------- */
+.hero{margin-bottom:8px}
+.hero h1{max-width:24ch; margin-bottom:18px}
+.hero .lede{max-width:60ch; margin-bottom:22px}
+.chips{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:28px}
+.chip{font-family:var(--mono); font-size:11.5px; padding:5px 11px; border-radius:999px; background:var(--card); border:1px solid var(--line); color:var(--body)}
+.chip.on{background:var(--primary); color:#fff; border-color:var(--primary)}
+.hero-art{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:26px 20px; box-shadow:0 2px 8px rgba(0,0,0,.04)}
+
+/* ---------- svg diagram ---------- */
+.diagram{width:100%; height:auto; display:block}
+.dbox{fill:#fff; stroke:var(--line); stroke-width:1.5}
+.dbox-a{fill:rgba(47,111,94,.07); stroke:rgba(47,111,94,.45); stroke-width:1.5}
+.dbox-b{fill:rgba(47,111,94,.14); stroke:rgba(47,111,94,.55); stroke-width:1.5}
+.dbox-c{fill:rgba(47,111,94,.22); stroke:rgba(47,111,94,.7); stroke-width:1.8}
+.dtext{font-family:var(--sans); font-size:13px; fill:var(--ink); font-weight:600}
+.dtext-sm{font-family:var(--mono); font-size:10.5px; fill:var(--muted)}
+.dtext-in{font-family:var(--sans); font-size:12.5px; fill:#fff; font-weight:600}
+.dlabel{font-family:var(--mono); font-size:9.5px; fill:var(--primary); letter-spacing:.05em}
+.darrow{stroke:var(--primary); stroke-width:1.6; fill:none; opacity:.7}
+.darrow-dash{stroke:var(--muted); stroke-width:1.4; fill:none; opacity:.5; stroke-dasharray:4 4}
+
+/* ---------- table ---------- */
+.tbl{width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; font-size:13.5px}
+.tbl th{text-align:left; font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:500; padding:13px 16px; background:var(--line-soft); border-bottom:1px solid var(--line)}
+.tbl td{padding:12px 16px; border-bottom:1px solid var(--line-soft); vertical-align:top; line-height:1.55}
+.tbl tr:last-child td{border-bottom:none}
+.tbl td:first-child{font-weight:600; color:var(--ink); white-space:nowrap}
+.tbl .good{color:var(--primary); font-weight:600}
+.tbl .bad{color:#a4624f; font-weight:600}
+
+/* ---------- bench ---------- */
+.bench{display:grid; grid-template-columns:190px 1fr 92px; gap:14px; align-items:center; padding:7px 0}
+.bench-label{font-size:13px; color:var(--body)}
+.bench-track{height:15px; background:var(--line-soft); border-radius:6px; overflow:hidden}
+.bench-fill{height:100%; background:var(--primary); border-radius:6px; opacity:.85}
+.bench-fill.alt{opacity:.42}
+.bench-val{font-family:var(--mono); font-size:12px; color:var(--ink); text-align:right}
+
+/* ---------- timeline ---------- */
+.timeline{list-style:none; padding:0; margin:0; position:relative}
+.timeline::before{content:""; position:absolute; left:8px; top:8px; bottom:8px; width:2px; background:var(--primary); opacity:.3}
+.timeline li{position:relative; padding:0 0 26px 34px}
+.timeline li:last-child{padding-bottom:0}
+.timeline li::before{content:""; position:absolute; left:2px; top:4px; width:14px; height:14px; border-radius:50%; background:var(--cream); border:2px solid var(--primary)}
+.timeline .stage{font-family:var(--mono); font-size:11px; color:var(--primary); letter-spacing:.1em}
+.timeline h3{margin:3px 0 6px}
+.timeline p{font-size:13.5px; color:var(--body); margin-bottom:0}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px}
+.tab{font-family:var(--mono); font-size:12px; padding:8px 15px; border-radius:9px; border:1px solid var(--line); background:var(--card); color:var(--muted); cursor:pointer; transition:all .18s ease}
+.tab:hover{border-color:var(--primary); color:var(--primary); transform:translateY(-1px)}
+.tab.on{background:var(--primary); color:#fff; border-color:var(--primary)}
+.panel{display:none}
+.panel.on{display:block; animation:fade .25s ease}
+@keyframes fade{from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none}}
+
+/* ---------- kv ---------- */
+.kv{display:grid; grid-template-columns:128px 1fr; row-gap:9px; column-gap:18px; margin:0; font-size:13.5px}
+.kv dt{color:var(--muted); border-bottom:1px dashed var(--line); padding-bottom:8px; font-family:var(--mono); font-size:12px}
+.kv dd{margin:0; border-bottom:1px dashed var(--line); padding-bottom:8px; color:var(--ink)}
+
+/* ---------- do / don't ---------- */
+.dd{display:grid; gap:16px; grid-template-columns:1fr 1fr}
+@media(max-width:768px){.dd{grid-template-columns:1fr}}
+.dd ul{list-style:none; padding:0}
+.dd li{font-size:13.5px; padding:7px 0 7px 24px; position:relative; border-bottom:1px solid var(--line-soft)}
+.dd li:last-child{border-bottom:none}
+.dd .do li::before{content:""; position:absolute; left:2px; top:14px; width:7px; height:7px; border-radius:2px; background:var(--primary)}
+.dd .dont li::before{content:""; position:absolute; left:2px; top:14px; width:7px; height:7px; border-radius:2px; background:#b08a7c}
+
+footer{margin-top:64px; padding-top:24px; border-top:1px solid var(--line); font-size:12.5px; color:var(--muted)}
+.files{font-family:var(--mono); font-size:12px; line-height:2; color:var(--body)}
+.files b{color:var(--ink); font-weight:500}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">多模态大模型 · 技术蓝图</div>
+  <h1>一条序列，一座大脑，三座感官塔</h1>
+  <p class="lede">
+    从零构建一个同时支持<strong>文本、图像、音频</strong>的 AI 大模型，不需要三套模型。
+    核心范式是：<strong>三座模态塔各自编码，一条投影桥把非文本特征翻译成「视觉 token」与「音频 token」，
+    再与文本 token 拼成同一条序列</strong>，交给一个 decoder-only LLM 统一自回归解码。
+    全文只维护一条 KV cache，训练与部署各只有一条路径。
+  </p>
+  <div class="chips">
+    <span class="chip on">1 条 KV cache</span>
+    <span class="chip">3 座编码塔</span>
+    <span class="chip">静态 token 预算</span>
+    <span class="chip">分阶段冻结训练</span>
+    <span class="chip">vLLM 原生可承载</span>
+  </div>
+  <div class="hero-art">
+    <svg class="diagram" viewBox="0 0 1000 560" role="img" aria-label="多模态大模型总体架构图">
+      <defs>
+        <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L7,3 z" fill="#2f6f5e" opacity=".75"/>
+        </marker>
+        <marker id="ahs" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L7,3 z" fill="#7c7a72" opacity=".6"/>
+        </marker>
+      </defs>
+
+      <!-- 输入层 -->
+      <text x="30" y="14" class="dlabel">INPUT</text>
+      <rect class="dbox" x="30" y="26" width="270" height="62" rx="11"/>
+      <text x="165" y="52" class="dtext" text-anchor="middle">文本</text>
+      <text x="165" y="72" class="dtext-sm" text-anchor="middle">BPE Tokenizer · 32K 词表</text>
+
+      <rect class="dbox-a" x="365" y="26" width="270" height="62" rx="11"/>
+      <text x="500" y="52" class="dtext" text-anchor="middle">图像</text>
+      <text x="500" y="72" class="dtext-sm" text-anchor="middle">336×336 · patch 14 · 576 patch</text>
+
+      <rect class="dbox-b" x="700" y="26" width="270" height="62" rx="11"/>
+      <text x="835" y="52" class="dtext" text-anchor="middle">音频</text>
+      <text x="835" y="72" class="dtext-sm" text-anchor="middle">16kHz · log-Mel 128×3000 / 30s</text>
+
+      <!-- 编码层 -->
+      <text x="30" y="118" class="dlabel">ENCODER</text>
+      <rect class="dbox" x="30" y="130" width="270" height="76" rx="11"/>
+      <text x="165" y="156" class="dtext" text-anchor="middle">Token Embedding</text>
+      <text x="165" y="176" class="dtext-sm" text-anchor="middle">(B, L, 4096)</text>
+      <text x="165" y="193" class="dtext-sm" text-anchor="middle">无需投影</text>
+
+      <rect class="dbox-a" x="365" y="130" width="270" height="76" rx="11"/>
+      <text x="500" y="154" class="dtext" text-anchor="middle">ViT-L/14 + Resampler</text>
+      <text x="500" y="174" class="dtext-sm" text-anchor="middle">双向注意力 · 24 层</text>
+      <text x="500" y="192" class="dtext-sm" text-anchor="middle">576 patch → 256 token</text>
+
+      <rect class="dbox-b" x="700" y="130" width="270" height="76" rx="11"/>
+      <text x="835" y="154" class="dtext" text-anchor="middle">Whisper Encoder</text>
+      <text x="835" y="174" class="dtext-sm" text-anchor="middle">卷积前端 + 双向 Transformer</text>
+      <text x="835" y="192" class="dtext-sm" text-anchor="middle">1500 帧 → 时域池化 → 25 token</text>
+
+      <!-- 投影层 -->
+      <text x="365" y="236" class="dlabel">PROJECTOR</text>
+      <rect class="dbox-a" x="365" y="248" width="270" height="66" rx="11"/>
+      <text x="500" y="272" class="dtext" text-anchor="middle">Linear → GELU → Linear</text>
+      <text x="500" y="292" class="dtext-sm" text-anchor="middle">+ LayerNorm 对齐文本尺度</text>
+
+      <rect class="dbox-b" x="700" y="248" width="270" height="66" rx="11"/>
+      <text x="835" y="272" class="dtext" text-anchor="middle">Conv 时域压缩 → MLP</text>
+      <text x="835" y="292" class="dtext-sm" text-anchor="middle">+ LayerNorm 对齐文本尺度</text>
+
+      <!-- 统一序列 -->
+      <text x="30" y="346" class="dlabel">UNIFIED SEQUENCE</text>
+      <rect class="dbox-c" x="30" y="358" width="940" height="80" rx="12"/>
+      <text x="500" y="380" class="dtext-in" text-anchor="middle">同一条 token 序列 · 只有一条 KV cache</text>
+      <g class="mono" font-size="11">
+        <rect x="52" y="394" width="62" height="26" rx="6" fill="rgba(255,255,255,.22)" stroke="rgba(255,255,255,.5)"/>
+        <text x="83" y="411" fill="#fff" text-anchor="middle" font-size="10.5">BOS</text>
+        <rect x="122" y="394" width="150" height="26" rx="6" fill="rgba(255,255,255,.16)" stroke="rgba(255,255,255,.42)"/>
+        <text x="197" y="411" fill="#fff" text-anchor="middle" font-size="10.5">user tokens</text>
+        <rect x="280" y="394" width="196" height="26" rx="6" fill="rgba(255,255,255,.34)" stroke="rgba(255,255,255,.6)"/>
+        <text x="378" y="411" fill="#fff" text-anchor="middle" font-size="10.5">&lt;image&gt; × 256</text>
+        <rect x="484" y="394" width="110" height="26" rx="6" fill="rgba(255,255,255,.16)" stroke="rgba(255,255,255,.42)"/>
+        <text x="539" y="411" fill="#fff" text-anchor="middle" font-size="10.5">user tokens</text>
+        <rect x="602" y="394" width="176" height="26" rx="6" fill="rgba(255,255,255,.34)" stroke="rgba(255,255,255,.6)"/>
+        <text x="690" y="411" fill="#fff" text-anchor="middle" font-size="10.5">&lt;audio&gt; × 25</text>
+        <rect x="786" y="394" width="166" height="26" rx="6" fill="rgba(255,255,255,.16)" stroke="rgba(255,255,255,.42)"/>
+        <text x="869" y="411" fill="#fff" text-anchor="middle" font-size="10.5">assistant tokens</text>
+      </g>
+
+      <!-- LLM -->
+      <text x="30" y="468" class="dlabel">BACKBONE</text>
+      <rect class="dbox-c" x="30" y="480" width="790" height="58" rx="12"/>
+      <text x="425" y="504" class="dtext-in" text-anchor="middle">Decoder-only LLM · RoPE + GQA + SwiGLU</text>
+      <text x="425" y="524" class="dtext-sm" text-anchor="middle" fill="rgba(255,255,255,.82)">32 层 / 4096 维 / 32 Q 头 · 8 KV 头 · 因果掩码自回归解码</text>
+
+      <rect class="dbox" x="836" y="480" width="134" height="58" rx="12"/>
+      <text x="903" y="506" class="dtext" text-anchor="middle">LM Head</text>
+      <text x="903" y="524" class="dtext-sm" text-anchor="middle">→ 文本 token</text>
+
+      <!-- 箭头 -->
+      <path class="darrow" d="M165,88 L165,126" marker-end="url(#ah)"/>
+      <path class="darrow" d="M500,88 L500,126" marker-end="url(#ah)"/>
+      <path class="darrow" d="M835,88 L835,126" marker-end="url(#ah)"/>
+      <path class="darrow-dash" d="M165,206 L165,354" marker-end="url(#ahs)"/>
+      <path class="darrow" d="M500,206 L500,244" marker-end="url(#ah)"/>
+      <path class="darrow" d="M835,206 L835,244" marker-end="url(#ah)"/>
+      <path class="darrow" d="M500,314 L500,354" marker-end="url(#ah)"/>
+      <path class="darrow" d="M835,314 L835,354" marker-end="url(#ah)"/>
+      <path class="darrow" d="M500,438 L500,476" marker-end="url(#ah)"/>
+      <path class="darrow" d="M820,509 L832,509" marker-end="url(#ah)"/>
+    </svg>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">总体架构</div>
+    <h2>为什么是「早融合 + 单序列」</h2>
+    <p>多模态融合有三条主流路线。对需要<strong>同时支持训练与部署</strong>的自建模型，早融合是唯一能把推理复杂度压到最低的选择。</p>
+  </div>
+  <table class="tbl">
+    <thead>
+      <tr><th>维度</th><th>早融合（本方案）</th><th>Cross-Attn 旁路</th><th>独立模型 + 工具调用</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>KV cache</td><td class="good">1 条，完全统一</td><td>1 条 + 旁路状态</td><td>多条，需编排</td></tr>
+      <tr><td>推理引擎</td><td class="good">vLLM / SGLang 原生支持</td><td class="bad">需改引擎内核</td><td>需多服务编排</td></tr>
+      <tr><td>视觉 token</td><td>占用上下文预算</td><td class="good">不占主序列</td><td>转文本后占用</td></tr>
+      <tr><td>长视频扩展</td><td>token 线性增长</td><td class="good">可交叉注意力池化</td><td class="bad">需先摘要</td></tr>
+      <tr><td>训练复杂度</td><td class="good">低（单条路径）</td><td>中高（冻结分层训练）</td><td>高（多模型对齐）</td></tr>
+      <tr><td>跨模态深度融合</td><td>共享全部层</td><td class="good">仅隔层注入</td><td class="bad">经文本中转，有损</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">网络规格</div>
+    <h2>每一层的维度都写死</h2>
+    <p>以下为 <code>preset("base")</code>（7B 级）的完整规格，实现见 <code>src/mmllm/config.py</code>。</p>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>组件</th><th>关键超参</th><th>输出形状</th><th>权重来源</th></tr></thead>
+    <tbody>
+      <tr><td>文本 Tokenizer</td><td>byte-level BPE，32K 词表，含 &lt;image&gt;/&lt;audio&gt; 特殊符</td><td class="mono">(B, L) int64</td><td>开源基座</td></tr>
+      <tr><td>Token Embedding</td><td>vocab 32000 × 4096</td><td class="mono">(B, L, 4096)</td><td>随机 / 基座</td></tr>
+      <tr><td>视觉塔</td><td>ViT-L/14-336，24 层，16 头，patch 14 → 576 patch</td><td class="mono">(B, 576, 1024)</td><td>CLIP</td></tr>
+      <tr><td>视觉 Resampler</td><td>Perceiver，256 可学习 latent，2 层跨注意力</td><td class="mono">(B, 256, 4096)</td><td>随机初始化</td></tr>
+      <tr><td>视觉投影器</td><td>Linear 4096→16384 → GELU → Linear 16384→4096 + LayerNorm</td><td class="mono">(B, 256, 4096)</td><td>随机初始化</td></tr>
+      <tr><td>音频塔</td><td>Whisper-large encoder，32 层，20 头，log-Mel 128×3000</td><td class="mono">(B, 1500, 1280)</td><td>Whisper</td></tr>
+      <tr><td>音频时域压缩</td><td>Conv1d k8s4 → Conv1d k5s5 → 自适应池化</td><td class="mono">(B, 25, 1280)</td><td>随机初始化</td></tr>
+      <tr><td>音频投影器</td><td>Linear 1280→16384 → GELU → Linear →4096 + LayerNorm</td><td class="mono">(B, 25, 4096)</td><td>随机初始化</td></tr>
+      <tr><td>LLM 主体</td><td>32 层，4096 维，32 Q 头 / 8 KV 头，SwiGLU 14336</td><td class="mono">(B, L, 4096)</td><td>随机 / 基座</td></tr>
+      <tr><td>LM Head</td><td>Linear 4096 → 32000</td><td class="mono">(B, L, 32000)</td><td>随 LLM</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">序列组装</div>
+    <h2>占位符静态展开：整套方案的关键约束</h2>
+    <p>文本里的 <code>&lt;image&gt;</code> 不是「一个」token，而是在送入模型前展开成 <strong>256 个连续占位符</strong>；<code>&lt;audio&gt;</code> 每 30 秒展开成 25 个。模型靠掩码把特征原位替换回去。</p>
+  </div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <h3>为什么必须静态</h3>
+      <p><strong>形状静态</strong>——推理期 batch shape 恒定，可用 CUDA Graph 与连续批处理；<strong>掩码对齐</strong>——占位符数量必须精确等于特征数量，否则特征会错位到别的图片上；<strong>预算可预估</strong>——能提前算出上下文占用与显存。</p>
+    </div>
+    <div class="card accent">
+      <h3>上下文预算怎么算</h3>
+      <p>每张图 = 256 token ≈ 200 个汉字的上下文；每 30 秒音频 = 25 token。10 图 + 1 分钟音频 ≈ 3050 token，已占 32K 上下文的 9.5%。<strong>视觉 token 数是延迟与效果的第一权衡旋钮。</strong></p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3>视觉 token 数的四档取舍</h3>
+    <div style="margin-top:12px">
+      <div class="bench"><span class="bench-label">64 · 激进压缩</span><div class="bench-track"><div class="bench-fill" style="width:13%"></div></div><span class="bench-val">省 75% 延迟</span></div>
+      <div class="bench"><span class="bench-label">144 · 网格重采样</span><div class="bench-track"><div class="bench-fill" style="width:29%"></div></div><span class="bench-val">576→144</span></div>
+      <div class="bench"><span class="bench-label">256 · 均衡（推荐）</span><div class="bench-track"><div class="bench-fill" style="width:52%"></div></div><span class="bench-val">2.2× 压缩</span></div>
+      <div class="bench"><span class="bench-label">576 · 不压缩</span><div class="bench-track"><div class="bench-fill alt" style="width:100%"></div></div><span class="bench-val">细节最好</span></div>
+    </div>
+    <p class="muted" style="font-size:12.5px; margin-top:12px">延迟以视觉塔前向 + 主干 prefill 估算。压缩率越高，OCR / 图表 / 密集文字类任务掉点越明显。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">训练</div>
+    <h2>四阶段递进，每阶段只解冻该解冻的部分</h2>
+    <p>多模态训练最大的坑是「一上来全参微调，数据还没学会就先把基座冲垮」。正确做法是分阶段逐步解冻。</p>
+  </div>
+
+  <ol class="timeline">
+    <li>
+      <span class="stage">STAGE 0 · 基座</span>
+      <h3>纯文本预训练（或直接复用开源基座）</h3>
+      <p>推荐直接用开源基座（如 Llama / Qwen / Mistral）。从零预训练 7B 需要约 15T token、数百张 A100 算力，是完全不同的工程量级——除非有数据与预算优势，否则不建议。</p>
+    </li>
+    <li>
+      <span class="stage">STAGE 1 · 对齐</span>
+      <h3>只训投影器，冻结全部主干</h3>
+      <p>数据：595K 图文对（CC3M / LAION / COYO）。目标：把视觉特征翻译到文本 embedding 空间。LR 1e-3（比 LLM 高两个数量级），1 epoch。这一步参数量最小，收敛最快，<strong>是整个多模态训练的成败关键</strong>。</p>
+    </li>
+    <li>
+      <span class="stage">STAGE 2 · 指令微调</span>
+      <h3>解冻 LLM + 投影器，冻结两座塔</h3>
+      <p>数据：多图对话、OCR、图表、数学视觉题。LR 分组——LLM 2e-5 / 投影器 2e-4 / 视觉塔 0（仍冻）。此时模型学会「按指令用图」，但还不懂声音。</p>
+    </li>
+    <li>
+      <span class="stage">STAGE 3 · 全模态 SFT</span>
+      <h3>加入音频塔，解冻全部</h3>
+      <p>数据：语音识别、音频问答、音频描述，与图文数据混合采样。LR 全部降到 1e-5 量级，并可选 LoRA 防止灾难性遗忘。之后再接 DPO / RLHF 做偏好对齐。</p>
+    </li>
+  </ol>
+
+  <div style="margin-top:26px">
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="s1">Stage 1 · 对齐</button>
+      <button class="tab" data-tab="s2">Stage 2 · 指令</button>
+      <button class="tab" data-tab="s3">Stage 3 · 全模态</button>
+    </div>
+
+    <div class="panel on" id="s1">
+      <div class="card">
+        <dl class="kv">
+          <dt>解冻</dt><dd>视觉投影器 + 音频投影器（+ Resampler）</dd>
+          <dt>冻结</dt><dd>LLM、视觉塔、音频塔</dd>
+          <dt>学习率</dt><dd>投影器 1e-3 · warmup 2% · cosine</dd>
+          <dt>数据</dt><dd>595K 图文对 + 100K 音频转写对</dd>
+          <dt>规模</dt><dd>实测可训练参数占比 <strong>8.82%</strong>（tiny 预设实测值）</dd>
+          <dt>目的</dt><dd>让投影器学会「翻译」，而非让 LLM 学会「说话」</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel" id="s2">
+      <div class="card">
+        <dl class="kv">
+          <dt>解冻</dt><dd>LLM 全参 + 投影器</dd>
+          <dt>冻结</dt><dd>视觉塔、音频塔</dd>
+          <dt>学习率</dt><dd>LLM 2e-5 · 投影器 2e-4 · cosine</dd>
+          <dt>数据</dt><dd>多图对话 158K + OCR/图表 233K + 视觉数学</dd>
+          <dt>并行</dt><dd>FSDP + 梯度检查点 + bf16</dd>
+          <dt>目的</dt><dd>建立「指令 → 视觉推理」的映射，保留基座的语言能力</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel" id="s3">
+      <div class="card">
+        <dl class="kv">
+          <dt>解冻</dt><dd>LLM + 投影器 + 音频塔（视觉塔默认仍冻）</dd>
+          <dt>冻结</dt><dd>视觉塔（可选解冻最后一层）</dd>
+          <dt>学习率</dt><dd>全部 1e-5 量级 · 可选 LoRA r=64</dd>
+          <dt>数据</dt><dd>音频描述 / 语音指令 / 音频问答，与图文混合</dd>
+          <dt>混合采样</dt><dd>按模态分桶，控制图/音/纯文本比例</dd>
+          <dt>目的</dt><dd>让 LLM 同时听、看、说，并保持图文能力不退化</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">资源预算</div>
+    <h2>显存怎么估</h2>
+    <p>两个独立的大头：<strong>训练时的优化器状态</strong>，和<strong>推理时的 KV cache</strong>。两者都只与参数量和序列长度线性相关，可以用公式先算再买卡。</p>
+  </div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <h3>训练 · 优化器与权重</h3>
+      <p class="mono" style="font-size:12px; color:var(--primary); margin-bottom:10px">AdamW 全参 ≈ 16 bytes / param</p>
+      <div class="bench"><span class="bench-label">7B 全参</span><div class="bench-track"><div class="bench-fill" style="width:10%"></div></div><span class="bench-val">112 GB</span></div>
+      <div class="bench"><span class="bench-label">70B 全参</span><div class="bench-track"><div class="bench-fill" style="width:100%"></div></div><span class="bench-val">1120 GB</span></div>
+      <div class="bench"><span class="bench-label">7B LoRA</span><div class="bench-track"><div class="bench-fill" style="width:2%"></div></div><span class="bench-val">~1.5 GB</span></div>
+      <p class="muted" style="font-size:12px; margin-top:10px">含 bf16 权重 2B + 梯度 2B + Adam m/v 各 4B + fp32 主权重 4B。7B 需 ≥8×A100-80G，70B 需 ≥16×A100-80G（ZeoRO-3 分片）。</p>
+    </div>
+    <div class="card">
+      <h3>推理 · KV cache</h3>
+      <p class="mono" style="font-size:12px; color:var(--primary); margin-bottom:10px">2 × layers × kv_heads × head_dim × 2 bytes</p>
+      <div class="bench"><span class="bench-label">7B · 8K 上下文</span><div class="bench-track"><div class="bench-fill" style="width:10%"></div></div><span class="bench-val">1.0 GB/并发</span></div>
+      <div class="bench"><span class="bench-label">7B · 32K 上下文</span><div class="bench-track"><div class="bench-fill" style="width:40%"></div></div><span class="bench-val">4.0 GB/并发</span></div>
+      <div class="bench"><span class="bench-label">70B · 32K 上下文</span><div class="bench-track"><div class="bench-fill" style="width:100%"></div></div><span class="bench-val">10 GB/并发</span></div>
+      <p class="muted" style="font-size:12px; margin-top:10px">GQA（8 KV 头 vs 32 Q 头）把 70B 的 KV cache 压到 MHA 的 1/4，这是长上下文部署的关键。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">部署</div>
+    <h2>服务拓扑与调优杠杆</h2>
+    <p>因为只有一条序列、一种输入格式，部署端可以直接复用 vLLM 的多模态管线，不需要改引擎内核。</p>
+  </div>
+  <div class="hero-art">
+    <svg class="diagram" viewBox="0 0 1000 300" role="img" aria-label="部署拓扑图">
+      <defs>
+        <marker id="ah2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L7,3 z" fill="#2f6f5e" opacity=".75"/>
+        </marker>
+      </defs>
+      <rect class="dbox" x="20" y="60" width="190" height="90" rx="11"/>
+      <text x="115" y="92" class="dtext" text-anchor="middle">客户端</text>
+      <text x="115" y="112" class="dtext-sm" text-anchor="middle">OpenAI 兼容协议</text>
+      <text x="115" y="130" class="dtext-sm" text-anchor="middle">image_url / audio</text>
+
+      <rect class="dbox-a" x="270" y="60" width="210" height="90" rx="11"/>
+      <text x="375" y="92" class="dtext" text-anchor="middle">API 网关</text>
+      <text x="375" y="112" class="dtext-sm" text-anchor="middle">限流 / 熔断 / 超时</text>
+      <text x="375" y="130" class="dtext-sm" text-anchor="middle">占位符静态展开</text>
+
+      <rect class="dbox-b" x="540" y="60" width="230" height="90" rx="11"/>
+      <text x="655" y="92" class="dtext" text-anchor="middle">vLLM / SGLang</text>
+      <text x="655" y="112" class="dtext-sm" text-anchor="middle">连续批处理 · PagedAttention</text>
+      <text x="655" y="130" class="dtext-sm" text-anchor="middle">TP 并行 · Prefix Caching</text>
+
+      <rect class="dbox-c" x="830" y="60" width="150" height="90" rx="11"/>
+      <text x="905" y="92" class="dtext" text-anchor="middle">GPU 池</text>
+      <text x="905" y="112" class="dtext-sm" text-anchor="middle">BF16 / FP8 / AWQ</text>
+      <text x="905" y="130" class="dtext-sm" text-anchor="middle">三塔同卡驻留</text>
+
+      <path class="darrow" d="M210,105 L266,105" marker-end="url(#ah2)"/>
+      <path class="darrow" d="M480,105 L536,105" marker-end="url(#ah2)"/>
+      <path class="darrow" d="M770,105 L826,105" marker-end="url(#ah2)"/>
+
+      <rect class="dbox" x="20" y="196" width="960" height="66" rx="11"/>
+      <text x="500" y="222" class="dtext" text-anchor="middle">观测面</text>
+      <text x="500" y="243" class="dtext-sm" text-anchor="middle">TTFT · TPOT · 端到端 P99 · 排队长度 · 视觉/音频 token 占比 · GPU 利用率 · 错误率</text>
+
+      <text x="20" y="186" class="dlabel">TELEMETRY</text>
+    </svg>
+  </div>
+
+  <table class="tbl" style="margin-top:20px">
+    <thead><tr><th>调优杠杆</th><th>作用</th><th>代价</th></tr></thead>
+    <tbody>
+      <tr><td>视觉 token 256 → 64</td><td>prefill 减 75%，TTFT 大幅下降</td><td>OCR / 图表细节明显掉点</td></tr>
+      <tr><td>Prefix Caching</td><td>系统提示 + 同一张图在多轮中复用</td><td>需保证缓存前缀稳定</td></tr>
+      <tr><td>GQA（8 KV 头）</td><td>KV cache 降为 MHA 的 1/4</td><td>极长上下文档位率略降</td></tr>
+      <tr><td>AWQ W4A16 / FP8</td><td>显存减半，并发翻倍</td><td>需重跑评测确认质量</td></tr>
+      <tr><td>Chunked Prefill</td><td>长视觉前缀不阻塞其他请求</td><td>单请求 TTFT 略增</td></tr>
+      <tr><td>投机解码</td><td>输出吞吐提升 1.5–2×</td><td>需额外小模型与调度</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">工程决策</div>
+    <h2>建之前必须定下来的事</h2>
+  </div>
+  <div class="dd">
+    <div class="card do">
+      <h3 style="margin-bottom:12px">应该做</h3>
+      <ul>
+        <li>直接复用开源基座，把算力投在模态对齐上</li>
+        <li>从 Stage 1 只训投影器开始，验证通路</li>
+        <li>占位符数量与特征数量做强校验，错位立即报错</li>
+        <li>投影输出加 LayerNorm，对齐文本 embedding 尺度</li>
+        <li>视觉/音频塔保持冻结，让它成为稳定的「翻译源」</li>
+        <li>训练与部署共用同一份 config.json，杜绝结构漂移</li>
+      </ul>
+    </div>
+    <div class="card dont">
+      <h3 style="margin-bottom:12px">要避免</h3>
+      <ul>
+        <li>一上来全参微调三座塔，数据没学会先把基座冲垮</li>
+        <li>跨注意力旁路方案，除非明确要改 vLLM 内核</li>
+        <li>投影器输出不做归一化，尺度失配导致训练不收敛</li>
+        <li>视觉 token 无限增长，256 只是起点不是终点</li>
+        <li>音频塔与 LLM 用同一个学习率，音频梯度会淹没语义</li>
+        <li>训练配置与部署配置各写一份，半年后必然对不上</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p style="margin-bottom:14px">配套参考实现（Python 3.12 + PyTorch 2.8，CPU 环境已通过形状与梯度自检）：</p>
+  <div class="files">
+    <b>src/mmllm/config.py</b> — 三塔配置契约与规模预设<br>
+    <b>src/mmllm/modeling.py</b> — ViT / Whisper 塔 / 投影器 / GQA+RoPE+SwiGLU LLM / 序列组装<br>
+    <b>src/mmllm/data.py</b> — 图像与音频预处理、对话模板、标签掩码、批处理<br>
+    <b>src/mmllm/tokenizer_ext.py</b> — 特殊 token 扩展与占位符静态展开<br>
+    <b>src/train/**</b> — 四阶段训练脚本与 YAML 配置<br>
+    <b>src/deploy/**</b> — vLLM 多模态注册、HF 权重导出、FastAPI 服务
+  </div>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var tabs = document.querySelectorAll('.tab');
+  var panels = document.querySelectorAll('.panel');
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){
+      tabs.forEach(function(x){ x.classList.remove('on'); });
+      panels.forEach(function(p){ p.classList.remove('on'); });
+      t.classList.add('on');
+      var el = document.getElementById(t.dataset.tab);
+      if(el){ el.classList.add('on'); }
+    });
+  });
+})();
+</script>
+</body>
+</html>
